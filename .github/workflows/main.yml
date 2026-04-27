@@ -1,4 +1,4 @@
-name: Sonar Scan
+name: CI Pipeline
 
 on:
   push:
@@ -34,3 +34,38 @@ jobs:
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.sources=src \
             -Dsonar.java.binaries=target/classes
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 🔹 Replace DB values dynamically
+      - name: Update application.properties
+        run: |
+          sed -i "s|DB_HOST|${{ secrets.RDS_ENDPOINT }}|g" src/main/resources/application.properties
+          sed -i "s|DB_USER|${{ secrets.RDS_USER }}|g" src/main/resources/application.properties
+          sed -i "s|DB_PASS|${{ secrets.RDS_PASS }}|g" src/main/resources/application.properties
+
+      # 🔹 Configure AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # 🔹 Login to ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 🔹 Build & Push Docker Image
+      - name: Build and Push Docker Image
+        run: |
+          docker build -t vprofile-app .
+          docker tag vprofile-app:latest ${{ steps.login-ecr.outputs.registry }}/vprofile-app:latest
+          docker push ${{ steps.login-ecr.outputs.registry }}/vprofile-app:latest
